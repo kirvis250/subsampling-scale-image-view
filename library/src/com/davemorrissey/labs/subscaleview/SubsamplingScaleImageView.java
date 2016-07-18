@@ -263,8 +263,13 @@ public class SubsamplingScaleImageView extends View {
     private float[] srcArray = new float[8];
     private float[] dstArray = new float[8];
 
+    //The logical density of the display
+    private float density;
+
+
     public SubsamplingScaleImageView(Context context, AttributeSet attr) {
         super(context, attr);
+        density = getResources().getDisplayMetrics().density;
         setMinimumDpi(160);
         setDoubleTapZoomDpi(160);
         setGestureDetector(context);
@@ -465,6 +470,9 @@ public class SubsamplingScaleImageView extends View {
             }
             if (bitmap != null && !bitmapIsCached) {
                 bitmap.recycle();
+            }
+            if (bitmap != null && bitmapIsCached && onImageEventListener != null) {
+                onImageEventListener.onPreviewReleased();
             }
             sWidth = 0;
             sHeight = 0;
@@ -746,7 +754,10 @@ public class SubsamplingScaleImageView extends View {
                         // and long click behaviour is preserved.
                         float dx = Math.abs(event.getX() - vCenterStart.x);
                         float dy = Math.abs(event.getY() - vCenterStart.y);
-                        if (dx > 5 || dy > 5 || isPanning) {
+
+                        //On the Samsung S6 long click event does not work, because the dx > 5 usually true
+                        float offset = density * 5;
+                        if (dx > offset || dy > offset || isPanning) {
                             consumed = true;
                             vTranslate.x = vTranslateStart.x + (event.getX() - vCenterStart.x);
                             vTranslate.y = vTranslateStart.y + (event.getY() - vCenterStart.y);
@@ -756,10 +767,10 @@ public class SubsamplingScaleImageView extends View {
                             fitToBounds(true);
                             boolean atXEdge = lastX != vTranslate.x;
                             boolean edgeXSwipe = atXEdge && dx > dy && !isPanning;
-                            boolean yPan = lastY == vTranslate.y && dy > 15;
+                            boolean yPan = lastY == vTranslate.y && dy > offset * 3;
                             if (!edgeXSwipe && (!atXEdge || yPan || isPanning)) {
                                 isPanning = true;
-                            } else if (dx > 5) {
+                            } else if (dx > offset) {
                                 // Haven't panned the image, and we're at the left or right edge. Switch to page swipe.
                                 maxTouchCount = 0;
                                 handler.removeMessages(MESSAGE_LONG_CLICK);
@@ -1371,10 +1382,10 @@ public class SubsamplingScaleImageView extends View {
                     tile.sampleSize = sampleSize;
                     tile.visible = sampleSize == fullImageSampleSize;
                     tile.sRect = new Rect(
-                            x * sTileWidth,
-                            y * sTileHeight,
-                            x == xTiles - 1 ? sWidth() : (x + 1) * sTileWidth,
-                            y == yTiles - 1 ? sHeight() : (y + 1) * sTileHeight
+                        x * sTileWidth,
+                        y * sTileHeight,
+                        x == xTiles - 1 ? sWidth() : (x + 1) * sTileWidth,
+                        y == yTiles - 1 ? sHeight() : (y + 1) * sTileHeight
                     );
                     tile.vRect = new Rect(0, 0, 0, 0);
                     tile.fileSRect = new Rect(tile.sRect);
@@ -1459,6 +1470,9 @@ public class SubsamplingScaleImageView extends View {
                     bitmap.recycle();
                 }
                 bitmap = null;
+                if (onImageEventListener != null && bitmapIsCached) {
+                    onImageEventListener.onPreviewReleased();
+                }
                 bitmapIsPreview = false;
                 bitmapIsCached = false;
             }
@@ -1544,6 +1558,9 @@ public class SubsamplingScaleImageView extends View {
                 bitmap.recycle();
             }
             bitmap = null;
+            if (onImageEventListener != null && bitmapIsCached) {
+                onImageEventListener.onPreviewReleased();
+            }
             bitmapIsPreview = false;
             bitmapIsCached = false;
         }
@@ -1643,6 +1660,11 @@ public class SubsamplingScaleImageView extends View {
         if (this.bitmap != null && !this.bitmapIsCached) {
             this.bitmap.recycle();
         }
+
+        if (this.bitmap != null && this.bitmapIsCached && onImageEventListener!=null) {
+            onImageEventListener.onPreviewReleased();
+        }
+
         this.bitmapIsPreview = false;
         this.bitmapIsCached = bitmapIsCached;
         this.bitmap = bitmap;
@@ -1664,9 +1686,10 @@ public class SubsamplingScaleImageView extends View {
     private int getExifOrientation(String sourceUri) {
         int exifOrientation = ORIENTATION_0;
         if (sourceUri.startsWith(ContentResolver.SCHEME_CONTENT)) {
+            Cursor cursor = null;
             try {
-                final String[] columns = { MediaStore.Images.Media.ORIENTATION };
-                final Cursor cursor = getContext().getContentResolver().query(Uri.parse(sourceUri), columns, null, null, null);
+                String[] columns = { MediaStore.Images.Media.ORIENTATION };
+                cursor = getContext().getContentResolver().query(Uri.parse(sourceUri), columns, null, null, null);
                 if (cursor != null) {
                     if (cursor.moveToFirst()) {
                         int orientation = cursor.getInt(0);
@@ -1676,10 +1699,13 @@ public class SubsamplingScaleImageView extends View {
                             Log.w(TAG, "Unsupported orientation: " + orientation);
                         }
                     }
-                    cursor.close();
                 }
             } catch (Exception e) {
                 Log.w(TAG, "Could not get orientation of image from media store");
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
             }
         } else if (sourceUri.startsWith(ImageSource.FILE_SCHEME) && !sourceUri.startsWith(ImageSource.ASSET_SCHEME)) {
             try {
@@ -2688,8 +2714,8 @@ public class SubsamplingScaleImageView extends View {
                 fitToBounds(true, satEnd);
                 // Adjust the position of the focus point at end so image will be in bounds
                 anim.vFocusEnd = new PointF(
-                        vFocus.x + (satEnd.vTranslate.x - vTranslateXEnd),
-                        vFocus.y + (satEnd.vTranslate.y - vTranslateYEnd)
+                    vFocus.x + (satEnd.vTranslate.x - vTranslateXEnd),
+                    vFocus.y + (satEnd.vTranslate.y - vTranslateYEnd)
                 );
             }
 
@@ -2782,6 +2808,11 @@ public class SubsamplingScaleImageView extends View {
          */
         void onTileLoadError(Exception e);
 
+        /**
+        * Called when a bitmap set using ImageSource.cachedBitmap is no longer being used by the View.
+        * This is useful if you wish to manage the bitmap after the preview is shown
+        */
+        void onPreviewReleased();
     }
 
     /**
@@ -2794,6 +2825,7 @@ public class SubsamplingScaleImageView extends View {
         @Override public void onPreviewLoadError(Exception e) { }
         @Override public void onImageLoadError(Exception e) { }
         @Override public void onTileLoadError(Exception e) { }
+        @Override public void onPreviewReleased() { }
 
     }
 
